@@ -12,7 +12,16 @@ When it reaches the end of the stack, it checks for unmarked blocks and frees
 them. This means **it is very unsafe** and could only work without much or any
 optimizations. This is because if the compiler decides that some pointer
 variable doesn't need to be in the stack and can simply be a register, the
-garbage collector may free it's memory!
+garbage collector may free it's memory! Or if the pointer is not aligned to 8
+bytes (for some reason).
+
+Note that the garbage collector may mark blocks as reached by accident. If in
+the stack there were two 32 bit integers one after the other, and the bits just
+coincide to represent a 64 bit pointer to one of the blocks, it will mark that
+block as visited even if it wasn't really a reference. However, marking blocks
+as visited isn't a memory safety concern since it will just not free it _now_.
+The hope is that this sort of thing doesn't happen very often, and if it does,
+it's short lived.
 
 ## Usage
 
