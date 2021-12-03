@@ -31,7 +31,7 @@ static size_t blocks_cap = 0;
 static size_t blocks_len = 0;
 static size_t allocs_since_gc = 0;
 
-void __init(void *sp) {
+void __gc_init(void *sp) {
     stack_base = sp;
     setup = true;
 }
