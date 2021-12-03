@@ -31,6 +31,8 @@ and replace usages of `malloc` for `cgmalloc`, `calloc` for `cgcalloc` and
 use the macro `CG_INIT(argv)`, where `argv` is the argument received by `main`.
 Finally, compile and link with `cgc.c`.
 
+**DO NOT USE ANY OPTIMIZATION LEVEL OTHER THAN `-O0`**
+
 ## Future things
 
 Maybe it would be possible to create some solution using a shim to overwrite the
