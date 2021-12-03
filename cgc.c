@@ -131,6 +131,6 @@ volatile void *gcrealloc(void *ptr, size_t size) {
 
 __attribute__((destructor))
 static void cleanup_gc() {
-    gc(NULL, NULL);
+    gc();
     free(blocks);
 }
