@@ -33,6 +33,12 @@ Finally, compile and link with `cgc.c`.
 
 **DO NOT USE ANY OPTIMIZATION LEVEL OTHER THAN `-O0`**
 
+## Configuration
+
+As of now, the only possible configuration is the `CG_INTERVAL` definition. It
+specifies how many calls to the API before the garbage collector is run. Setting
+it to `0` will run the garbage collector on every API call.
+
 ## Future things
 
 Maybe it would be possible to create some solution using a shim to overwrite the
