@@ -3,7 +3,7 @@
 #include "../cgc.h"
 
 int main(int argc, char *argv[]) {
-    SETUP_GC(argv);
+    GC_INIT(argv);
 
     int **ptr;
     ptr = (int **)gcmalloc(sizeof(int*));

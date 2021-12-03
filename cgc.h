@@ -7,7 +7,7 @@
 #define GC_INTERVAL 8
 #endif
 
-#define SETUP_GC(argv) __init(argv);
+#define GC_INIT(argv) __init(argv);
 
 // FIXME: Is this how you do it?
 #pragma pack(8)

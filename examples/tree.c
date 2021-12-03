@@ -24,7 +24,7 @@ void dfs(Node *node) {
 }
 
 int main(int argc, char *argv[]) {
-    SETUP_GC(argv);
+    GC_INIT(argv);
 
     Node *root = node_new(1);
     root->left = node_new(2);
