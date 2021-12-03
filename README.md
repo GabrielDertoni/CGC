@@ -1,4 +1,4 @@
-# CGC - A dumm Garbage Collector for C.
+# CGC - A dumm Garbage Collector for C
 
 ## WARNING
 
