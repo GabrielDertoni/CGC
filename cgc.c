@@ -77,14 +77,13 @@ void gc() {
 }
 
 volatile void *gcmalloc(size_t size) {
-    allocs_since_gc++;
     if (!setup) {
         fprintf(stderr, "Garbage collector not setup.\n");
         exit(1);
     }
 
     // Run the garbage collector.
-    if (allocs_since_gc > GC_INTERVAL) gc();
+    if (++allocs_since_gc > GC_INTERVAL) gc();
 
     // Perform allocation.
 
@@ -114,6 +113,8 @@ volatile void *gccalloc(size_t nmemb, size_t size) {
 }
 
 volatile void *gcrealloc(void *ptr, size_t size) {
+    if (++allocs_since_gc > GC_INTERVAL) gc();
+
     void *new_ptr = sysrealloc(ptr, size);
     if (!new_ptr) return NULL;
 
