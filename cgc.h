@@ -17,6 +17,6 @@ volatile void *gcmalloc(size_t size);
 volatile void *gccalloc(size_t nmemb, size_t size);
 volatile void *gcrealloc(void *ptr, size_t size);
 
-void __init(void *);
+void __gc_init(void *);
 
 #endif

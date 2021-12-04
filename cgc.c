@@ -24,6 +24,21 @@ struct block {
     uint64_t free : 1;
 };
 
+// All main general purpouse x86 registers
+struct regs64 {
+    union {
+        struct {
+            uint64_t rax; // Accumulator
+            uint64_t rbx; // Base
+            uint64_t rcx; // Counter
+            uint64_t rdx; // Data
+            uint64_t rsi; // Stream source
+            uint64_t rdi; // Stream destination
+        } named;
+        uint64_t vec[6];
+    };
+};
+
 volatile static void *stack_base = NULL;
 static bool setup = false;
 static struct block *blocks = NULL;
@@ -36,33 +51,70 @@ void __gc_init(void *sp) {
     setup = true;
 }
 
-static void gc_mark(volatile void **start, volatile void **limit) {
-    for (volatile void **ptr = start; ptr < limit; ptr++) {
-        // Check if is a possible pointer to a node.
-        // TODO: Use a binary search with a balanced tree.
-        for (size_t i = 0; i < blocks_len; i++) {
-            if (!blocks[i].free
-             && !blocks[i].marked
-             &&  blocks[i].start <= *ptr
-             &&  blocks[i].start + blocks[i].size > *ptr)
-            {
-                // sp is a pointer into that block, mark it as visited.
-                blocks[i].marked = 1;
-                gc_mark((volatile void **)blocks[i].start,
-                        (volatile void **)(blocks[i].start + blocks[i].size));
+static inline struct block* check_ptr(volatile void *ptr) {
+    // TODO: Use a binary search with a balanced tree.
+    for (size_t i = 0; i < blocks_len; i++) {
+        if (!blocks[i].free
+         && !blocks[i].marked
+         &&  blocks[i].start <= ptr
+         &&  blocks[i].start + blocks[i].size > ptr)
+        {
+            // Blocks are disjoint so a pointer can only point to inside one of
+            // the blocks.
+            return &blocks[i];
+        }
+    }
+    return NULL;
+}
 
-                // Blocks are disjoints so a pointer can only point to inside
-                // one of the blocks.
-                break;
-            }
+static inline void get_regs(struct regs64* ptr) {
+    asm(
+        "mov %%rax, %0\n"
+        "mov %%rbx, %1\n"
+        "mov %%rcx, %2\n"
+        "mov %%rdx, %3\n"
+        "mov %%rsi, %4\n"
+        "mov %%rdi, %5\n"
+        :"=m" (ptr->named.rax),
+         "=m" (ptr->named.rbx),
+         "=m" (ptr->named.rcx),
+         "=m" (ptr->named.rdx),
+         "=m" (ptr->named.rsi),
+         "=m" (ptr->named.rdi)
+    );
+}
+
+static inline void mark_from_registers() {
+    struct regs64 regs;
+    get_regs(&regs);
+    for (uint8_t i = 0; i < 6; i++) {
+        check_ptr((volatile void*)regs.vec[i]);
+    }
+}
+
+static void mark_memory(volatile void **start, volatile void **limit) {
+    // FIXME: Should `ptr` actually be volatile??
+    for (volatile void **ptr = start; ptr < limit; ptr++) {
+        // Check if is a possible pointer to a block.
+        struct block *match;
+        if ((match = check_ptr(*ptr))) {
+            // `ptr` is a pointer into a block, mark it as visited.
+            match->marked = 1;
+            mark_memory((volatile void **)match->start,
+                        (volatile void **)(match->start + match->size));
         }
     }
 }
 
+static void gc_mark() {
+    void *sp = NULL;
+    mark_from_registers();
+    mark_memory((volatile void **)&sp, (volatile void **)stack_base);
+}
+
 void gc() {
-    void *sp;
     // Mark used nodes.
-    gc_mark((volatile void **)&sp, (volatile void **)stack_base);
+    gc_mark();
 
     // Free umarked nodes
     for (size_t i = 0; i < blocks_len; i++) {
@@ -83,6 +135,8 @@ volatile void *gcmalloc(size_t size) {
     }
 
     // Run the garbage collector.
+    // TODOO: Run the garbage collector every few allocated bytes instead of
+    // every few API calls.
     if (++allocs_since_gc > GC_INTERVAL) gc();
 
     // Perform allocation.
@@ -130,7 +184,12 @@ volatile void *gcrealloc(void *ptr, size_t size) {
 }
 
 __attribute__((destructor))
-static void cleanup_gc() {
-    gc();
+static void gc_cleanup() {
+    for (size_t i = 0; i < blocks_len; i++) {
+        if (!blocks[i].free) {
+            free((void*)blocks[i].start);
+            blocks[i].free = 1;
+        }
+    }
     free(blocks);
 }
