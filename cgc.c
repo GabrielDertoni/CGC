@@ -39,12 +39,22 @@ struct regs64 {
     };
 };
 
-volatile static void *stack_base = NULL;
+static volatile void *stack_base = NULL;
 static bool setup = false;
 static struct block *blocks = NULL;
 static size_t blocks_cap = 0;
 static size_t blocks_len = 0;
 static size_t allocs_since_gc = 0;
+
+#ifndef NDEBUG
+#define assert(cond, msg)                                         \
+    if (!(cond)) {                                                \
+        fprintf(stderr, "C-GC error: %s\n", msg);                 \
+        exit(EXIT_FAILURE);                                       \
+    }
+#else
+#define assert(cond, msg)
+#endif
 
 #ifdef VALGRIND
 #include "valgrind.h"
@@ -139,14 +149,6 @@ static inline void get_regs(struct regs64* ptr) {
     );
 }
 
-static inline void mark_from_registers() {
-    struct regs64 regs;
-    get_regs(&regs);
-    for (uint8_t i = 0; i < 6; i++) {
-        check_ptr((volatile void*)regs.vec[i]);
-    }
-}
-
 static void mark_from_memory(volatile void **start, volatile void **limit) {
     // FIXME: Should `ptr` actually be volatile??
     for (volatile void **ptr = start; ptr < limit; ptr++) {
@@ -156,15 +158,73 @@ static void mark_from_memory(volatile void **start, volatile void **limit) {
             // `ptr` is a pointer into a block, mark it as visited.
             match->marked = 1;
             mark_from_memory((volatile void **)match->start,
-                        (volatile void **)(match->start + match->size));
+                             (volatile void **)(match->start + match->size));
         }
     }
 }
 
+static inline void mark_from_registers() {
+    struct regs64 regs;
+    get_regs(&regs);
+    for (uint8_t i = 0; i < 6; i++) {
+        struct block *match;
+        if ((match = check_ptr((volatile void*)regs.vec[i]))) {
+            match->marked = 1;
+            mark_from_memory((volatile void **)match->start,
+                             (volatile void **)(match->start + match->size));
+        }
+    }
+}
+
+static inline void mark_from_dot_data() {
+#define LINE_SIZE 2048
+
+    char actual_path[LINE_SIZE];
+    ssize_t ret = readlink("/proc/self/exe", (char*)&actual_path, LINE_SIZE);
+    assert(ret >= 0, "failed to to read link '/proc/self/exe'");
+
+    FILE *fp = fopen("/proc/self/maps", "r");
+    assert(fp != NULL, "failed to read '/proc/self/maps'");
+
+    volatile void **start, **end;
+    char path[LINE_SIZE];
+    char buf[LINE_SIZE];
+    char wp, rp;
+    int n = 0;
+
+    while (fgets(buf, LINE_SIZE, fp) != NULL
+        && !(n == 5 && rp == 'r' && wp == 'w' && strcmp(path, actual_path) == 0))
+    {
+        n = sscanf(buf, "%lx-%lx %c%c%*c%*c %*x %*d:%*d %*d %s\n",
+                   (uintptr_t*)&start, (uintptr_t*)&end, &rp, &wp, path);
+    }
+    fclose(fp);
+    assert(n == 5 && rp == 'r' && wp == 'w' && strcmp(path, actual_path) == 0,
+           "couldn't find .data segment");
+
+    for (volatile void **ptr = start; ptr < end; ptr++) {
+        struct block *match;
+        if ((match = check_ptr(*ptr))) {
+            match->marked = 1;
+            mark_from_memory((volatile void **)match->start,
+                             (volatile void **)(match->start + match->size));
+        }
+    }
+
+#undef LINE_SIZE
+}
+
+// This cannot be inlined because we always want to get the frame address of the
+// `gc()` function (`gc_mark`s caller), not gc's caller. If this was inlined, I
+// am afraid `__builtin_frame_address(1)` would remain unchanged and get the
+// next frame address.
+__attribute__((noinline))
 static void gc_mark() {
-    void *sp = NULL;
     mark_from_registers();
-    mark_from_memory((volatile void **)&sp, (volatile void **)stack_base);
+    mark_from_dot_data();
+
+    volatile void **frame_addr = (volatile void **)__builtin_frame_address(1);
+    mark_from_memory(frame_addr, (volatile void **)stack_base);
 }
 
 void gc() {
@@ -184,10 +244,7 @@ void gc() {
 }
 
 volatile void *gcmalloc(size_t size) {
-    if (!setup) {
-        fprintf(stderr, "Garbage collector not setup.\n");
-        exit(1);
-    }
+    assert(setup, "garbage collector not setup");
 
     // Run the garbage collector.
     // TODOO: Run the garbage collector every few allocated bytes instead of
