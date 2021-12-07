@@ -176,6 +176,7 @@ static inline void mark_from_registers() {
     }
 }
 
+#ifndef NGLOBALS
 static inline void mark_from_dot_data() {
 #define LINE_SIZE 2048
 
@@ -213,6 +214,7 @@ static inline void mark_from_dot_data() {
 
 #undef LINE_SIZE
 }
+#endif
 
 // This cannot be inlined because we always want to get the frame address of the
 // `gc()` function (`gc_mark`s caller), not gc's caller. If this was inlined, I
@@ -221,7 +223,9 @@ static inline void mark_from_dot_data() {
 __attribute__((noinline))
 static void gc_mark() {
     mark_from_registers();
+#ifndef NGLOBALS
     mark_from_dot_data();
+#endif
 
     volatile void **frame_addr = (volatile void **)__builtin_frame_address(1);
     mark_from_memory(frame_addr, (volatile void **)stack_base);
