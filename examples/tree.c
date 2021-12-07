@@ -23,8 +23,8 @@ void dfs(Node *node) {
     dfs(node->right);
 }
 
-int main(int argc, char *argv[]) {
-    GC_INIT(argv);
+int main() {
+    gcinit();
 
     Node *root = node_new(1);
     root->left = node_new(2);

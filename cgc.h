@@ -7,16 +7,13 @@
 #define GC_INTERVAL 8
 #endif
 
-#define GC_INIT(argv) __gc_init(argv);
-
 // FIXME: Is this how you do it?
 #pragma pack(8)
 
+void gcinit();
 void gc();
 volatile void *gcmalloc(size_t size);
 volatile void *gccalloc(size_t nmemb, size_t size);
 volatile void *gcrealloc(void *ptr, size_t size);
-
-void __gc_init(void *);
 
 #endif

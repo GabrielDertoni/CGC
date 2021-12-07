@@ -2,8 +2,8 @@
 
 #include "../cgc.h"
 
-int main(int argc, char *argv[]) {
-    GC_INIT(argv);
+int main() {
+    gcinit();
 
     int **ptr;
     ptr = (int **)gcmalloc(sizeof(int*));

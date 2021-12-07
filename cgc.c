@@ -122,13 +122,14 @@ static inline struct block* check_ptr(volatile void *ptr) {
 }
 #endif
 
-void __gc_init(void *sp) {
+void gcinit() {
 #ifdef VALGRIND
     if (RUNNING_ON_VALGRIND) {
         check_ptr = valgrind_running_check_ptr;
     }
 #endif
-    stack_base = sp;
+    // The stack frame of the caller of `gcinit`.
+    stack_base = __builtin_frame_address(1);
     setup = true;
 }
 
@@ -217,11 +218,11 @@ static inline void mark_from_dot_data() {
 #endif
 
 // This cannot be inlined because we always want to get the frame address of the
-// `gc()` function (`gc_mark`s caller), not gc's caller. If this was inlined, I
-// am afraid `__builtin_frame_address(1)` would remain unchanged and get the
-// next frame address.
+// `gc()` function (`mark`s caller), not gc's caller. If this was inlined,
+// `__builtin_frame_address(1)` would remain unchanged and get the next frame
+// address: https://www.ibm.com/docs/en/xl-c-aix/12.1.0?topic=functions-builtin-frame-address-builtin-return-address#:~:text=If%20a%20function%20is%20inlined%2C%20the%20frame%20or%20return%20address%20corresponds%20to%20that%20of%20the%20function%20that%20is%20returned%20to.
 __attribute__((noinline))
-static void gc_mark() {
+static void mark() {
     mark_from_registers();
 #ifndef NGLOBALS
     mark_from_dot_data();
@@ -233,7 +234,7 @@ static void gc_mark() {
 
 void gc() {
     // Mark used nodes.
-    gc_mark();
+    mark();
 
     // Free umarked nodes
     for (size_t i = 0; i < blocks_len; i++) {
@@ -300,7 +301,7 @@ volatile void *gcrealloc(void *ptr, size_t size) {
 }
 
 __attribute__((destructor))
-static void gc_cleanup() {
+static void gccleanup() {
     for (size_t i = 0; i < blocks_len; i++) {
         if (!blocks[i].free) {
             free((void*)blocks[i].start);
