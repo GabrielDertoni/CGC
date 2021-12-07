@@ -46,11 +46,55 @@ static size_t blocks_cap = 0;
 static size_t blocks_len = 0;
 static size_t allocs_since_gc = 0;
 
-void __gc_init(void *sp) {
-    stack_base = sp;
-    setup = true;
+#ifdef VALGRIND
+#include "valgrind.h"
+
+static uintptr_t valgrind_check_block(uint64_t _tid, uintptr_t blockp, uintptr_t p) {
+    struct block* block = (struct block*)blockp;
+    return !block->free
+        && !block->marked
+        &&  block->start <= (volatile void *)p
+        &&  block->start + block->size > (volatile void *)p;
 }
 
+static struct block* valgrind_running_check_ptr(volatile void *ptr) {
+    // TODO: Use a binary search with a balanced tree.
+    for (size_t i = 0; i < blocks_len; i++) {
+        bool points_to_block = (bool)VALGRIND_NON_SIMD_CALL2(
+            valgrind_check_block,
+            (uintptr_t)&blocks[i],
+            (uintptr_t)ptr
+        );
+
+        if (points_to_block) {
+            // Blocks are disjoint so a pointer can only point to inside one of
+            // the blocks.
+            return &blocks[i];
+        }
+    }
+    return NULL;
+}
+
+static struct block* valgrind_check_ptr(volatile void *ptr) {
+    for (size_t i = 0; i < blocks_len; i++) {
+        bool points_to_block = valgrind_check_block(
+            0,
+            (uintptr_t)&blocks[i],
+            (uintptr_t)ptr
+        );
+
+        if (points_to_block) {
+            // Blocks are disjoint so a pointer can only point to inside one of
+            // the blocks.
+            return &blocks[i];
+        }
+    }
+    return NULL;
+}
+
+static struct block* (*check_ptr)(volatile void *ptr) = valgrind_check_ptr;
+
+#else
 static inline struct block* check_ptr(volatile void *ptr) {
     // TODO: Use a binary search with a balanced tree.
     for (size_t i = 0; i < blocks_len; i++) {
@@ -65,6 +109,17 @@ static inline struct block* check_ptr(volatile void *ptr) {
         }
     }
     return NULL;
+}
+#endif
+
+void __gc_init(void *sp) {
+#ifdef VALGRIND
+    if (RUNNING_ON_VALGRIND) {
+        check_ptr = valgrind_running_check_ptr;
+    }
+#endif
+    stack_base = sp;
+    setup = true;
 }
 
 static inline void get_regs(struct regs64* ptr) {
