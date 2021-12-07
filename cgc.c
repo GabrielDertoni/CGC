@@ -147,7 +147,7 @@ static inline void mark_from_registers() {
     }
 }
 
-static void mark_memory(volatile void **start, volatile void **limit) {
+static void mark_from_memory(volatile void **start, volatile void **limit) {
     // FIXME: Should `ptr` actually be volatile??
     for (volatile void **ptr = start; ptr < limit; ptr++) {
         // Check if is a possible pointer to a block.
@@ -155,7 +155,7 @@ static void mark_memory(volatile void **start, volatile void **limit) {
         if ((match = check_ptr(*ptr))) {
             // `ptr` is a pointer into a block, mark it as visited.
             match->marked = 1;
-            mark_memory((volatile void **)match->start,
+            mark_from_memory((volatile void **)match->start,
                         (volatile void **)(match->start + match->size));
         }
     }
@@ -164,7 +164,7 @@ static void mark_memory(volatile void **start, volatile void **limit) {
 static void gc_mark() {
     void *sp = NULL;
     mark_from_registers();
-    mark_memory((volatile void **)&sp, (volatile void **)stack_base);
+    mark_from_memory((volatile void **)&sp, (volatile void **)stack_base);
 }
 
 void gc() {
