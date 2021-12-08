@@ -59,3 +59,7 @@ it to `0` will run the garbage collector on every API call.
 
 Keeping track of blocks can be optimized a lot by using some sort of balanced
 tree, preferably a B-Tree.
+
+## Inspiration and credit
+
+This implementation was very much inspired by [Tsoding's memalloc](https://github.com/tsoding/memalloc).
