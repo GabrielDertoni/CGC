@@ -31,7 +31,10 @@ and replace usages of `malloc` for `cgmalloc`, `calloc` for `cgcalloc` and
 use the macro `CG_INIT(argv)`, where `argv` is the argument received by `main`.
 Finally, compile and link with `cgc.c`.
 
-**DO NOT USE ANY OPTIMIZATION LEVEL OTHER THAN `-O0`**
+### Rules
+
+- No obscured pointers such as XOR linked lists
+- No packing of pointers in structures. All pointers should be aligned.
 
 ## Configuration
 

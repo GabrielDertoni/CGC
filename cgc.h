@@ -7,9 +7,6 @@
 #define GC_INTERVAL 8
 #endif
 
-// FIXME: Is this how you do it?
-#pragma pack(8)
-
 void gc();
 volatile void *gcmalloc(size_t size);
 volatile void *gccalloc(size_t nmemb, size_t size);
