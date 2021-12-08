@@ -25,16 +25,29 @@ it's short lived.
 
 ## Usage
 
-Now for the nice things. Usage is simple, include `cgc.h` in all your `.c` files
-and replace usages of `malloc` for `cgmalloc`, `calloc` for `cgcalloc` and
-`realloc` with `gcrealloc`. In the `main` function, before doing any allocation,
-use the macro `CG_INIT(argv)`, where `argv` is the argument received by `main`.
-Finally, compile and link with `cgc.c`.
+There are many ways of using the library. The classic way is to always use
+`gcmalloc`, `gccalloc` and `gcrealloc` in order to allocate memory. No usage of
+`free` is needed (of course). This will require the code to be compiled and
+linked with `cgc.c`.
+
+The quickest way is if you have a single file, just include `cgc.inl` and use
+the usual `malloc`, `calloc` and `realloc` directly. This can be a quick hack to
+avoid manual memory management. `free` will just do nothing.
+
+Another possibility is to compile `shim.c` into a dynamic library and use
+`LD_PRELOAD` with it before your binary. In this way you can just avoit manual
+memory management in an already existing binary.
+
+Finally you could use static linking with `shim.c`. That would work, but note
+that tools like `valgrind` will overwrite `malloc`, etc. to the usual
+implementations so the garbage collector would not be active when running on
+`valgrind`.
 
 ### Rules
 
 - No obscured pointers such as XOR linked lists
 - No packing of pointers in structures. All pointers should be aligned.
+- Only works on Linux, x86_64, with GCC or Clang compilers.
 
 ## Configuration
 
@@ -44,8 +57,5 @@ it to `0` will run the garbage collector on every API call.
 
 ## Future things
 
-Maybe it would be possible to create some solution using a shim to overwrite the
-default `malloc`, `calloc`, `realloc` and `free` directly. In this case, the
-user would just have to link the library and CGC would do the rest. `free` could
-just be replaced by a function that does nothing, in case the user has forgotten
-to remove from the codebase.
+Keeping track of blocks can be optimized a lot by using some sort of balanced
+tree, preferably a B-Tree.
