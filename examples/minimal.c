@@ -3,8 +3,6 @@
 #include "../cgc.h"
 
 int main() {
-    gcinit();
-
     int **ptr;
     ptr = (int **)gcmalloc(sizeof(int*));
     *ptr = (int *)gcmalloc(sizeof(int));

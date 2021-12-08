@@ -122,17 +122,6 @@ static inline struct block* check_ptr(volatile void *ptr) {
 }
 #endif
 
-void gcinit() {
-#ifdef VALGRIND
-    if (RUNNING_ON_VALGRIND) {
-        check_ptr = valgrind_running_check_ptr;
-    }
-#endif
-    // The stack frame of the caller of `gcinit`.
-    stack_base = __builtin_frame_address(1);
-    setup = true;
-}
-
 static inline void get_regs(struct regs64* ptr) {
     asm(
         "mov %%rax, %0\n"
@@ -228,7 +217,7 @@ static void mark() {
     mark_from_dot_data();
 #endif
 
-    volatile void **frame_addr = (volatile void **)__builtin_frame_address(1);
+    volatile void **frame_addr = (volatile void **)__builtin_frame_address(0);
     mark_from_memory(frame_addr, (volatile void **)stack_base);
 }
 
@@ -298,6 +287,18 @@ volatile void *gcrealloc(void *ptr, size_t size) {
     }
 
     return new_ptr;
+}
+
+__attribute__((constructor))
+static void gcinit() {
+#ifdef VALGRIND
+    if (RUNNING_ON_VALGRIND) {
+        check_ptr = valgrind_running_check_ptr;
+    }
+#endif
+    // The stack frame of the caller of `gcinit`.
+    stack_base = __builtin_frame_address(0);
+    setup = true;
 }
 
 __attribute__((destructor))

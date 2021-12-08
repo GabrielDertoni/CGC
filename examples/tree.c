@@ -24,8 +24,6 @@ void dfs(Node *node) {
 }
 
 int main() {
-    gcinit();
-
     Node *root = node_new(1);
     root->left = node_new(2);
     root->right = node_new(3);
