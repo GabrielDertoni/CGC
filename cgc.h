@@ -12,4 +12,20 @@ volatile void *gcmalloc(size_t size);
 volatile void *gccalloc(size_t nmemb, size_t size);
 volatile void *gcrealloc(void *ptr, size_t size);
 
+#ifdef GC_EXTERN_ALLOC
+
+extern void*(*__gc_sysmalloc)(size_t);
+extern void*(*__gc_syscalloc)(size_t, size_t);
+extern void*(*__gc_sysrealloc)(void*, size_t);
+extern void (*__gc_sysfree)(void*);
+
+#else
+
+#define __gc_sysmalloc  malloc
+#define __gc_syscalloc  calloc
+#define __gc_sysrealloc realloc
+#define __gc_sysfree    free
+
+#endif
+
 #endif

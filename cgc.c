@@ -13,10 +13,6 @@
 
 #define MIN_CAP 8
 
-#define sysmalloc  malloc
-#define syscalloc  calloc
-#define sysrealloc realloc
-
 struct block {
     volatile void *start;
     uint64_t size : 62;
@@ -167,7 +163,10 @@ static inline void mark_from_registers() {
 }
 
 #ifndef NGLOBALS
-static inline void mark_from_dot_data() {
+static volatile void **data_start = NULL;
+static volatile void **data_end = NULL;
+
+static void find_dot_data() {
 #define LINE_SIZE 2048
 
     char actual_path[LINE_SIZE];
@@ -177,7 +176,7 @@ static inline void mark_from_dot_data() {
     FILE *fp = fopen("/proc/self/maps", "r");
     assert(fp != NULL, "failed to read '/proc/self/maps'");
 
-    volatile void **start, **end;
+    void *start, *end;
     char path[LINE_SIZE];
     char buf[LINE_SIZE];
     char wp, rp;
@@ -191,9 +190,18 @@ static inline void mark_from_dot_data() {
     }
     fclose(fp);
     assert(n == 5 && rp == 'r' && wp == 'w' && strcmp(path, actual_path) == 0,
-           "couldn't find .data segment");
+           "couldn't find '.data' segment");
 
-    for (volatile void **ptr = start; ptr < end; ptr++) {
+    data_start = (volatile void**)start;
+    data_end = (volatile void**)end;
+
+#undef LINE_SIZE
+}
+
+static inline void mark_from_dot_data() {
+    if (!data_start || !data_end) find_dot_data();
+
+    for (volatile void **ptr = data_start; ptr < data_end; ptr++) {
         struct block *match;
         if ((match = check_ptr(*ptr))) {
             match->marked = 1;
@@ -201,8 +209,6 @@ static inline void mark_from_dot_data() {
                              (volatile void **)(match->start + match->size));
         }
     }
-
-#undef LINE_SIZE
 }
 #endif
 
@@ -228,7 +234,7 @@ void gc() {
     // Free umarked nodes
     for (size_t i = 0; i < blocks_len; i++) {
         if (!blocks[i].marked && !blocks[i].free) {
-            free((void*)blocks[i].start);
+            __gc_sysfree((void*)blocks[i].start);
             blocks[i].free = 1;
         }
         blocks[i].marked = 0;
@@ -238,18 +244,13 @@ void gc() {
 }
 
 volatile void *gcmalloc(size_t size) {
-    assert(setup, "garbage collector not setup");
-
     // Run the garbage collector.
     // TODOO: Run the garbage collector every few allocated bytes instead of
     // every few API calls.
     if (++allocs_since_gc > GC_INTERVAL) gc();
 
     // Perform allocation.
-
-    // TODO: use dlsym.
-    // malloc_fn *sysmalloc = dlsym(RTLD_NEXT, "malloc");
-    void *ptr = sysmalloc(size);
+    void *ptr = __gc_sysmalloc(size);
     if (!ptr) return NULL;
 
     struct block alloc;
@@ -260,7 +261,7 @@ volatile void *gcmalloc(size_t size) {
 
     if (blocks_cap == blocks_len) {
         if ((blocks_cap *= 2) == 0) blocks_cap = MIN_CAP;
-        blocks = sysrealloc(blocks, blocks_cap * sizeof(struct block));
+        blocks = __gc_sysrealloc(blocks, blocks_cap * sizeof(struct block));
     }
     blocks[blocks_len++] = alloc;
     return ptr;
@@ -275,7 +276,7 @@ volatile void *gccalloc(size_t nmemb, size_t size) {
 volatile void *gcrealloc(void *ptr, size_t size) {
     if (++allocs_since_gc > GC_INTERVAL) gc();
 
-    void *new_ptr = sysrealloc(ptr, size);
+    void *new_ptr = __gc_sysrealloc(ptr, size);
     if (!new_ptr) return NULL;
 
     for (size_t i = 0; i < blocks_len; i++) {
@@ -289,6 +290,7 @@ volatile void *gcrealloc(void *ptr, size_t size) {
     return new_ptr;
 }
 
+// This function should never do any dynamic allocation!
 __attribute__((constructor))
 static void gcinit() {
 #ifdef VALGRIND
@@ -305,9 +307,9 @@ __attribute__((destructor))
 static void gccleanup() {
     for (size_t i = 0; i < blocks_len; i++) {
         if (!blocks[i].free) {
-            free((void*)blocks[i].start);
+            __gc_sysfree((void*)blocks[i].start);
             blocks[i].free = 1;
         }
     }
-    free(blocks);
+    if (blocks) __gc_sysfree(blocks);
 }
