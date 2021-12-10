@@ -17,7 +17,16 @@ struct block {
     volatile void *start;
     uint64_t size : 62;
     uint64_t marked : 1;
-    uint64_t free : 1;
+};
+
+struct slot {
+    bool is_free;
+    union {
+        struct block as_block;
+        struct {
+            struct slot* next_free;
+        } as_vacant;
+    };
 };
 
 // All main general purpouse x86 registers
@@ -37,7 +46,8 @@ struct regs64 {
 
 static volatile void *stack_base = NULL;
 static bool setup = false;
-static struct block *blocks = NULL;
+static struct slot *next_free = NULL;
+static struct slot *blocks = NULL;
 static size_t blocks_cap = 0;
 static size_t blocks_len = 0;
 static size_t allocs_since_gc = 0;
@@ -57,25 +67,25 @@ static size_t allocs_since_gc = 0;
 
 static uintptr_t valgrind_check_block(uint64_t _tid, uintptr_t blockp, uintptr_t p) {
     struct block* block = (struct block*)blockp;
-    return !block->free
-        && !block->marked
-        &&  block->start <= (volatile void *)p
-        &&  block->start + block->size > (volatile void *)p;
+    return !block->marked
+         && block->start <= (volatile void *)p
+         && block->start + block->size > (volatile void *)p;
 }
 
 static struct block* valgrind_running_check_ptr(volatile void *ptr) {
     // TODO: Use a binary search with a balanced tree.
     for (size_t i = 0; i < blocks_len; i++) {
+        if (blocks[i].is_free) continue;
         bool points_to_block = (bool)VALGRIND_NON_SIMD_CALL2(
             valgrind_check_block,
-            (uintptr_t)&blocks[i],
+            (uintptr_t)&blocks[i].as_block,
             (uintptr_t)ptr
         );
 
         if (points_to_block) {
             // Blocks are disjoint so a pointer can only point to inside one of
             // the blocks.
-            return &blocks[i];
+            return &blocks[i].as_block;
         }
     }
     return NULL;
@@ -83,16 +93,17 @@ static struct block* valgrind_running_check_ptr(volatile void *ptr) {
 
 static struct block* valgrind_check_ptr(volatile void *ptr) {
     for (size_t i = 0; i < blocks_len; i++) {
+        if (blocks[i].is_free) continue;
         bool points_to_block = valgrind_check_block(
             0,
-            (uintptr_t)&blocks[i],
+            (uintptr_t)&blocks[i].as_block,
             (uintptr_t)ptr
         );
 
         if (points_to_block) {
             // Blocks are disjoint so a pointer can only point to inside one of
             // the blocks.
-            return &blocks[i];
+            return &blocks[i].as_block;
         }
     }
     return NULL;
@@ -104,14 +115,13 @@ static struct block* (*check_ptr)(volatile void *ptr) = valgrind_check_ptr;
 static inline struct block* check_ptr(volatile void *ptr) {
     // TODO: Use a binary search with a balanced tree.
     for (size_t i = 0; i < blocks_len; i++) {
-        if (!blocks[i].free
-         && !blocks[i].marked
-         &&  blocks[i].start <= ptr
-         &&  blocks[i].start + blocks[i].size > ptr)
-        {
+        if (blocks[i].is_free) continue;
+
+        struct block *b = &blocks[i].as_block;
+        if (!b->marked && b->start <= ptr && b->start + b->size > ptr) {
             // Blocks are disjoint so a pointer can only point to inside one of
             // the blocks.
-            return &blocks[i];
+            return b;
         }
     }
     return NULL;
@@ -233,11 +243,17 @@ void gc() {
 
     // Free umarked nodes
     for (size_t i = 0; i < blocks_len; i++) {
-        if (!blocks[i].marked && !blocks[i].free) {
-            __gc_sysfree((void*)blocks[i].start);
-            blocks[i].free = 1;
+        if (blocks[i].is_free) continue;
+        struct block* b = &blocks[i].as_block;
+        if (b->marked) {
+            b->marked = 0;
+        } else {
+            __gc_sysfree((void*)b->start);
+            blocks[i].is_free = true;
+            blocks[i].as_vacant.next_free = next_free;
+            next_free = &blocks[i];
+            b->marked = 0;
         }
-        blocks[i].marked = 0;
     }
 
     allocs_since_gc = 0;
@@ -257,13 +273,21 @@ volatile void *gcmalloc(size_t size) {
     alloc.start = ptr;
     alloc.size = size;
     alloc.marked = 0;
-    alloc.free = 0;
 
-    if (blocks_cap == blocks_len) {
-        if ((blocks_cap *= 2) == 0) blocks_cap = MIN_CAP;
-        blocks = __gc_sysrealloc(blocks, blocks_cap * sizeof(struct block));
+    if (next_free) {
+        struct slot *p = next_free;
+        next_free = p->as_vacant.next_free;
+        p->is_free = false;
+        p->as_block = alloc;
+    } else {
+        if (blocks_cap == blocks_len) {
+            if ((blocks_cap *= 2) == 0) blocks_cap = MIN_CAP;
+            blocks = __gc_sysrealloc(blocks, blocks_cap * sizeof(struct slot));
+        }
+        blocks[blocks_len].is_free  = false;
+        blocks[blocks_len].as_block = alloc;
+        blocks_len++;
     }
-    blocks[blocks_len++] = alloc;
     return ptr;
 }
 
@@ -281,14 +305,17 @@ volatile void *gcrealloc(void *ptr, size_t size) {
     if (!new_ptr) return NULL;
 
     for (size_t i = 0; i < blocks_len; i++) {
-        if (blocks[i].start == ptr && blocks[i].free == 0) {
-            blocks[i].start = new_ptr;
-            blocks[i].size = size;
-            break;
+        if (blocks[i].is_free) continue;
+        struct block *b = &blocks[i].as_block;
+        if (b->start == ptr) {
+            b->start = new_ptr;
+            b->size = size;
+            return new_ptr;
         }
     }
 
-    return new_ptr;
+    assert(false, "realloc on invalid pointer");
+    return NULL;
 }
 
 // This function should never do any dynamic allocation!
@@ -306,10 +333,9 @@ void gcinit(void *frame_address) {
 __attribute__((destructor))
 static void gccleanup() {
     for (size_t i = 0; i < blocks_len; i++) {
-        if (!blocks[i].free) {
-            __gc_sysfree((void*)blocks[i].start);
-            blocks[i].free = 1;
-        }
+        if (blocks[i].is_free) continue;
+        struct block *b = &blocks[i].as_block;
+        __gc_sysfree((void*)b->start);
     }
     if (blocks) __gc_sysfree(blocks);
 }
