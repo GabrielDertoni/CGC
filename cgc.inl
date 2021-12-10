@@ -16,9 +16,9 @@
 #define VALGRIND
 #include "cgc.c"
 
-#define malloc    gcmalloc
-#define calloc    gccalloc
-#define realloc   gcrealloc
+#define malloc(...)  (void*)gcmalloc(__VA_ARGS__)
+#define calloc(...)  (void*)gccalloc(__VA_ARGS__)
+#define realloc(...) (void*)gcrealloc(__VA_ARGS__)
 #define free(...)
 
 #endif
