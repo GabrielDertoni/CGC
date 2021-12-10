@@ -274,6 +274,7 @@ volatile void *gccalloc(size_t nmemb, size_t size) {
 }
 
 volatile void *gcrealloc(void *ptr, size_t size) {
+    if (!ptr) return gcmalloc(size);
     if (++allocs_since_gc > GC_INTERVAL) gc();
 
     void *new_ptr = __gc_sysrealloc(ptr, size);
@@ -291,15 +292,14 @@ volatile void *gcrealloc(void *ptr, size_t size) {
 }
 
 // This function should never do any dynamic allocation!
-__attribute__((constructor))
-static void gcinit() {
+void gcinit(void *frame_address) {
 #ifdef VALGRIND
     if (RUNNING_ON_VALGRIND) {
         check_ptr = valgrind_running_check_ptr;
     }
 #endif
     // The stack frame of the caller of `gcinit`.
-    stack_base = __builtin_frame_address(0);
+    stack_base = frame_address;
     setup = true;
 }
 

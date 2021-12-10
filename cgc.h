@@ -7,6 +7,9 @@
 #define GC_INTERVAL 8
 #endif
 
+#define GC_INIT() gcinit(__builtin_frame_address(0));
+
+void gcinit(void* frame_address);
 void gc();
 volatile void *gcmalloc(size_t size);
 volatile void *gccalloc(size_t nmemb, size_t size);
